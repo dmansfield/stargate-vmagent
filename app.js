@@ -27,7 +27,38 @@ app.use(bodyParser.json());
 
 // routing
 
-app.use('/api/vms/:uuid', function(req, res, next) {
+app.get('/api/vms/:uuid/assignees', function(req, res, next) {
+    var uuid = req.params.uuid;
+    vmService.getVmAssignees(uuid, function(err, assignees) {
+        if (err) return next(err);
+        res.json(assignees); 
+        console.log("wrote output");
+    });
+});
+
+app.put('/api/vms/:uuid/assignees/:user', function(req, res, next) {
+    var uuid = req.params.uuid;
+    var user = req.params.user;
+    var type = req.body.type;
+    vmService.addVmAssignee(uuid, req.params.user, req.body.type, function(err) {
+        if (err) return next(err);
+        res.status(201); // Created
+        res.location('/api/vms/'+uuid+'/assignees/'+user);
+        res.send({message:"Assignee created", code: 201});
+    });
+});
+
+app.delete('/api/vms/:uuid/assignees/:user', function(req, res, next) {
+    var uuid = req.params.uuid;
+    var user = req.params.user;
+    vmService.removeVmAssignee(uuid, user, function(err) {
+        if (err) return next(err);
+        res.status(204); // No Content
+        res.send({message:"Assignee removed", code: 204});
+    });
+});
+
+app.get('/api/vms/:uuid', function(req, res, next) {
 	var uuid = req.params.uuid;
 	var allVms = vmService.getVm(uuid, function(err, vms) {
 		if (err) {
@@ -39,10 +70,9 @@ app.use('/api/vms/:uuid', function(req, res, next) {
 	});
 });
 
-app.use('/api/vms', function(req, res, next) {
+app.get('/api/vms', function(req, res, next) {
 	var allVms = vmService.getVms(function(err, vms) {
 		if (err) {return next(new InternalServerError(err));}
-		
 		res.json(vms);
 	});
 });
@@ -57,20 +87,20 @@ app.use('/', function(req, res, next) {
 
 // error handling
 
-// create an 404 for unrouted resources
+// create an 404 for un-routed resources
 app.use(function(req, res, next) {
-  var err = new Error('Not Found');
-  err.status = 404;
-  next(err);
+    debug("generating 404");
+    next(new NotFoundError());
 });
 
 // production error handler
 app.use(function(err, req, res, next) {
   res.status(err.status || 500);
+  console.log('Error handler: ', err);
   res.send({ 
 	name: err.name,
     message: err.message,
-    error: err.status
+    code: err.status
   });
 });
 
