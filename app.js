@@ -14,7 +14,7 @@ var InternalServerError = require('./errors/http/internalservererror');
 var NotFoundError = require('./errors/http/notfounderror');
 //    VM service errors.  These MUST be caught and wrapped with an http errro
 var VmNotFoundError = require('./services/vm/errors/vmnotfounderror');
-
+var UserExistsError = require('./services/vm/errors/userexistserror');
 
 var config = require('./config/config');
 
@@ -40,7 +40,7 @@ app.put('/api/vms/:uuid/assignees/:user', function(req, res, next) {
     var uuid = req.params.uuid;
     var user = req.params.user;
     var type = req.body.type;
-    vmService.addVmAssignee(uuid, req.params.user, req.body.type, function(err) {
+    vmService.addOrUpdateVmAssignee(uuid, req.params.user, req.body.type, function(err) {
         if (err) return next(err);
         res.status(201); // Created
         res.location('/api/vms/'+uuid+'/assignees/'+user);
@@ -52,6 +52,7 @@ app.delete('/api/vms/:uuid/assignees/:user', function(req, res, next) {
     var uuid = req.params.uuid;
     var user = req.params.user;
     vmService.removeVmAssignee(uuid, user, function(err) {
+        if (err instanceof UserExistsError) {return next(new NotFoundError(err));}
         if (err) return next(err);
         res.status(204); // No Content
         res.send({message:"Assignee removed", code: 204});
