@@ -96,6 +96,14 @@ exports.startVm = function(uuidOrName, callback) {
     });
 }
 
+exports.setPowerState = function(uuidOrName, powerState, callback) {
+    if (powerState === exports.POWER_STATE_ON) {
+        exports.startVm(uuidOrName, callback);
+    } else {
+        exports.forceShutdownVm(uuidOrName, callback);
+    }
+}
+
 // callback(err, res) will receive an array of vm object, each with properties:
 //   name
 //   id (if running)
@@ -220,6 +228,16 @@ exports.waitForPowerState = function(uuidOrName, powerState, timeoutMs, callback
         waitForPowerState(domain, powerState == exports.POWER_STATE_ON, now + timeoutMs, now, callback);
     });
 };
+
+exports.getPowerState = function(uuidOrName, callback) {
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
+        domain.isActive(function(err, active) {
+            if (err) return callback(err);
+            callback(null, active ? exports.POWER_STATE_ON : exports.POWER_STATE_OFF);
+        });
+    });
+}
 
 //
 // This will fail (without much extra information) unless the domain was started

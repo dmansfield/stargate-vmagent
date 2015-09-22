@@ -20,6 +20,7 @@ var NotFoundError = require('./errors/http/notfounderror');
 //    VM service errors.  These MUST be caught and wrapped with an http errro
 var VmNotFoundError = require('./services/vm/errors/vmnotfounderror');
 var UserExistsError = require('./services/vm/errors/userexistserror');
+var WrongPowerStateError = require('./services/vm/errors/wrongpowerstateerror');
 
 // //////////////////////////////
 
@@ -30,12 +31,38 @@ app.use(bodyParser.json());
 
 // routing
 
+function mapVmServiceError(err) {
+    if (err instanceof UserExistsError) {return new NotFoundError(err);}
+    if (err instanceof VmNotFoundError) {return new NotFoundError(err);}
+    return new InternalServerError(err);
+}
+
+function sendMessageResponse(res, messageOrObject, code, location, errorName) {
+    var obj;
+    if (typeof(messageOrObject) === 'object') {
+        obj = messageOrObject;
+    } else {
+        obj = {"message":messageOrObject};
+    }
+    if (code) {
+        res.status(code);
+        obj.code = code;
+    }
+    if (location) {
+        res.location(location);
+        obj.location = location;
+    }
+    if (errorName) {
+        obj.errorName = errorName;
+    }
+    res.json(obj);
+}
+
 app.get('/api/vms/:uuid/assignees', function(req, res, next) {
     var uuid = req.params.uuid;
     vmService.getVmAssignees(uuid, function(err, assignees) {
-        if (err) return next(err);
+        if (err) return next(mapVmServiceError(err));
         res.json(assignees); 
-        console.log("wrote output");
     });
 });
 
@@ -44,10 +71,8 @@ app.put('/api/vms/:uuid/assignees/:user', function(req, res, next) {
     var user = req.params.user;
     var type = req.body.type;
     vmService.addOrUpdateVmAssignee(uuid, req.params.user, req.body.type, function(err) {
-        if (err) return next(err);
-        res.status(201); // Created
-        res.location('/api/vms/'+uuid+'/assignees/'+user);
-        res.send({message:"Assignee created", code: 201});
+        if (err) return next(mapVmServiceError(err));
+        sendMessageResponse(res, "Assignee created", 201, '/api/vms/'+uuid+'/assignees/'+user);
     });
 });
 
@@ -55,28 +80,66 @@ app.delete('/api/vms/:uuid/assignees/:user', function(req, res, next) {
     var uuid = req.params.uuid;
     var user = req.params.user;
     vmService.removeVmAssignee(uuid, user, function(err) {
-        if (err instanceof UserExistsError) {return next(new NotFoundError(err));}
-        if (err) return next(err);
-        res.status(204); // No Content
-        res.send({message:"Assignee removed", code: 204});
+        if (err) return next(mapVmServiceError(err));
+        sendMessageResponse(res, "Assignee removed", 200);
     });
 });
 
+app.get('/api/vms/:uuid/powerState', function(req, res, next) {
+    var uuid = req.params.uuid;
+    vmService.getPowerState(uuid, function(err, powerState) {
+        if (err) return next(mapVmServiceError(err));
+        res.json({
+            "powerState": powerState
+            , "powerStateName": powerState === vmService.POWER_STATE_ON ? "POWER_STATE_ON":"POWER_STATE_OFF"
+        });
+    });
+});
+
+app.put('/api/vms/:uuid/powerState', function(req, res, next) {
+    var uuid = req.params.uuid;
+    var powerState = req.body.powerState;
+    if (powerState === "cycle") {
+        vmService.forceShutdownVm(uuid, function(err) {
+            var xtra = "";
+            if (err) {
+                if (!(err instanceof WrongPowerStateError)) {
+                    return next(mapVmServiceError(err));
+                }
+                xtra += "VM not running. Shutdown skipped.";
+            }
+            vmService.waitForPowerState(uuid, vmService.POWER_STATE_OFF, 10000, function(err) {
+                if (err) return next(mapVmServiceError(err));
+                vmService.startVm(uuid, function(err) {
+                    if (err) return next(mapVmServiceError(err));
+                    sendMessageResponse(res, "Power cycle complete"+(xtra?": "+xtra:""), 200);
+                });
+            });
+        });
+    } else {
+        if (typeof(powerState) === 'string') {
+            if (powerState.toLowerCase() === 'on') powerState = vmService.POWER_STATE_ON;
+            else if (powerState.toLowerCase() === 'off') powerState = vmService.POWER_STATE_OFF;
+            else return next(new InternalServerError("Invalid power state: %s", powerState));
+        }
+        vmService.setPowerState(uuid, powerState, function(err) {
+            if (err) return next(mapVmServiceError(err));
+            sendMessageResponse(res, "Power state changed", 200);
+        });
+    }
+});
+
 app.get('/api/vms/:uuid', function(req, res, next) {
-	var uuid = req.params.uuid;
-	var allVms = vmService.getVm(uuid, function(err, vms) {
-		if (err) {
-			if (err instanceof VmNotFoundError) {return next(new NotFoundError(err));}
-			next(new InternalServerError(err)); return;
-		}
-		
-		res.json(vms);
-	});
+    var uuid = req.params.uuid;
+    vmService.getVm(uuid, function(err, vm) {
+        if (err) return next(mapVmServiceError(err));
+        res.json(vm);
+    });
 });
 
 app.get('/api/vms', function(req, res, next) {
 	var allVms = vmService.getVms(function(err, vms) {
-		if (err) {return next(new InternalServerError(err));}
+        if (err) return next(mapVmServiceError(err));
 		res.json(vms);
 	});
 });
@@ -93,7 +156,6 @@ app.use('/', function(req, res, next) {
 
 // create an 404 for un-routed resources
 app.use(function(req, res, next) {
-    debug("generating 404");
     next(new NotFoundError());
 });
 
@@ -102,7 +164,7 @@ app.use(function(err, req, res, next) {
   res.status(err.status || 500);
   console.log('Error handler: ', err);
   res.send({ 
-	name: err.name,
+	errorName: err.name,
     message: err.message,
     code: err.status
   });
