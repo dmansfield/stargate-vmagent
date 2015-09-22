@@ -14,6 +14,7 @@
     "libvirt": "git://github.com/hooklift/node-libvirt.git#a94e46a27ebbf0b619fee5e71a3956aac67cf75e",
     "verror": "~1.6.0",
     "xpath": "~0.0.9",
-    "xmldom": "~0.1.19"
+    "xmldom": "~0.1.19",
+    "yargs": "^3.25.0"
   }
 }

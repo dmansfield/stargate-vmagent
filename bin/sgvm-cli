@@ -1,0 +1,67 @@
+#!/usr/bin/env node
+
+var VError = require('verror');
+var vmService = require('../services/vm/vm');
+var UserExistsError = require('../services/vm/errors/userexistserror');
+
+var subcommands = {
+	"add-user": addUser
+	, "remove-user": removeUser
+};
+
+var argv = require('yargs')
+	.usage('Usage: $0 <command> [options]')
+	.command('add-user', 'Add a user/administrator to a VM')
+	.command('remove-user', 'Add a user/administrator to a VM')
+	.demand(1)
+	.example('$0 add-user -u bob -m win7','Add bob to win7 as a user')
+	.demand('u')
+	.alias('u','user')
+	.nargs('u', 1)
+	.describe('u','User to add')
+	.default('t','user')
+	.alias('t','type')
+	.nargs('t', 1)
+	.describe('t','User type')
+	.choices('t',['administrator','user'])
+	.demand('m')
+	.alias('m','vm')
+	.nargs('m', 1)
+	.describe('m','VM to add the user to (name or uuid)')
+	.help('h')
+	.alias('h','help')
+	.check(checkSubcommand)
+	.argv;
+
+function checkSubcommand(checkArgv) {
+	if (!subcommands[checkArgv._[0]]) {
+		throw new VError("Invalid subcommand: %s", checkArgv._[0]);
+	}
+	return true;
+}
+
+vmService.init(function(err) {
+	if (err) throw err;
+	var ret = subcommands[argv._[0]](function(err, xtra) {
+		console.log(err || ("Operation successful"+(xtra?": "+xtra:"")));
+		process.exit(err ? 1 : 0);
+	});
+});
+
+function addUser(callback) {
+	vmService.addOrUpdateVmAssignee(argv.m, argv.u, argv.t, function(err, info) {
+		callback(err, info);
+	});
+}
+
+function removeUser(callback) {
+	vmService.removeVmAssignee(argv.m, argv.u, function(err) {
+		var xtra;
+		if (err && err instanceof UserExistsError) {
+			err = null;
+			xtra = "User was not present to be removed";
+		} 
+		callback(err, xtra);
+	});
+}
+

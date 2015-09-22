@@ -40,20 +40,20 @@ exports.init = function(callback) {
 
 // throws VmNotFoundError
 exports.getVm = function(uuid, callback) {
-	var dom = hypervisor.lookupDomainByUUID(uuid);
+    var dom = hypervisor.lookupDomainByUUID(uuid);
 
-	if (!dom) {
-		return callback(new VmNotFoundError("No VM found for uuid: %s", uuid), null);
-	}
-	
-	var xml = getDomainXml(dom);
-	
-	callback(null, {
-			name: dom.getName()
-			, uuid: dom.getUUID()
-			, info: dom.getInfo()
-			, xml: xml
-	});
+    if (!dom) {
+        return callback(new VmNotFoundError("No VM found for uuid: %s", uuid), null);
+    }
+    
+    var xml = getDomainXml(dom);
+    
+    callback(null, {
+            name: dom.getName()
+            , uuid: dom.getUUID()
+            , info: dom.getInfo()
+            , xml: xml
+    });
 };
 
 exports.forceShutdownVm = function(uuid, callback) {
@@ -179,9 +179,19 @@ exports.getVms = function(callback) {
 
 // operating on "metadata" of domain
 
-function withDomainAndMetadataDocument(uuid, callback) {
-    hypervisor.lookupDomainByUUID(uuid, function(err, domain) {
-        if (err) return callback(err);
+function withDomainAndMetadataDocument(uuidOrName, callback) {
+    var method;
+    
+    var re = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    method = (uuidOrName.match(re)) ? "lookupDomainByUUID" : "lookupDomainByName";
+    
+    hypervisor[method](uuidOrName, function(err, domain) {
+        if (err) {
+            if (err.code === libvirt.VIR_ERR_NO_DOMAIN) {
+                err = new VmNotFoundError(err, "no domain for key %s using method %s", uuidOrName, method);
+            }
+            return callback(err);
+        }
         domain.getMetadata(libvirt.VIR_DOMAIN_METADATA_ELEMENT, METADATA_NS, 0, function(err, xml) {
             if (err) {
                 if (err.code !== VIR_ERR_NO_DOMAIN_METADATA)  return callback(err);
@@ -190,7 +200,7 @@ function withDomainAndMetadataDocument(uuid, callback) {
             
             var doc = new dom().parseFromString(xml);
 
-            callback(domain, doc);
+            callback(err, domain, doc);
         });
     });
 }
@@ -204,8 +214,9 @@ function findExistingUser(doc, user) {
     }
 }
 
-exports.getVmAssignees = function(uuid, callback) {
-    withDomainAndMetadataDocument(uuid, function(domain, doc) {
+exports.getVmAssignees = function(uuidOrName, callback) {
+    withDomainAndMetadataDocument(uuidOrName, function(err, domain, doc) {
+        if (err) return callback(err);
         var userNodes = xpath.select("//"+ASSIGNED_USER_ELEM, doc);
         var users = [];
         userNodes.forEach(function(userNode) {
@@ -217,10 +228,12 @@ exports.getVmAssignees = function(uuid, callback) {
     });
 };
 
-exports.addOrUpdateVmAssignee = function(uuid, user, type, callback) {
+exports.addOrUpdateVmAssignee = function(uuidOrName, user, type, callback) {
     if (ValidUserTypes[type] === undefined) return callback(new InvalidArgumentError("bad user type: %s", type));
     
-    withDomainAndMetadataDocument(uuid, function(domain, doc) {
+    withDomainAndMetadataDocument(uuidOrName, function(err, domain, doc) {
+        if (err) return callback(err);
+        
         var existingUser = findExistingUser(doc, user); 
 
         if (existingUser) {
@@ -237,25 +250,26 @@ exports.addOrUpdateVmAssignee = function(uuid, user, type, callback) {
         var newXml = doc.toString();
 
         domain.setMetadata(libvirt.VIR_DOMAIN_METADATA_ELEMENT, newXml, METADATA_NS_QUAL, METADATA_NS, 0, function(err) {
-            return callback(err);
+            return callback(err, existingUser ? "Existing user updated" : "User Created");
         });
         
     });
 };
 
-exports.removeVmAssignee = function(uuid, user, callback) {
-    withDomainAndMetadataDocument(uuid, function(domain, doc) {
+exports.removeVmAssignee = function(uuidOrName, user, callback) {
+    withDomainAndMetadataDocument(uuidOrName, function(err, domain, doc) {
+        if (err) return callback(err);
+        
         var remove = findExistingUser(doc, user);
 
         if (!remove) {
             // doesn't break idempotency since server state is the same as if it were removed
-            return callback(new UserExistsError("user %s cannot be removed from %s: doesn't exist", user, uuid));
+            return callback(new UserExistsError("user %s cannot be removed from %s: doesn't exist", user, uuidOrName));
         }
 
         doc.childNodes[0].removeChild(remove);
         
         var newXml = doc.toString();
-        debug("using xml %s", newXml);
         domain.setMetadata(libvirt.VIR_DOMAIN_METADATA_ELEMENT, newXml, METADATA_NS_QUAL, METADATA_NS, 0, function(err) {
             return callback(err);
         });
