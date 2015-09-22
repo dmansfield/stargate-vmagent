@@ -34,7 +34,7 @@ app.use(bodyParser.json());
 function mapVmServiceError(err) {
     if (err instanceof UserExistsError) {return new NotFoundError(err);}
     if (err instanceof VmNotFoundError) {return new NotFoundError(err);}
-    return new InternalServerError(err);
+    return new InternalServerError(err, ": %s", err.message);
 }
 
 function sendMessageResponse(res, messageOrObject, code, location, errorName) {
@@ -127,6 +127,16 @@ app.put('/api/vms/:uuid/powerState', function(req, res, next) {
             sendMessageResponse(res, "Power state changed", 200);
         });
     }
+});
+
+app.put('/api/vms/:uuid/graphicsPassword', function(req, res, next) {
+    var uuid = req.params.uuid;
+    var password = req.body.password;
+    var validSeconds = req.body.validSeconds || 60;
+    vmService.setGraphicsPassword(uuid, password, validSeconds, function(err) {
+        if (err) return next(mapVmServiceError(err));
+        sendMessageResponse(res, "Password changed and will be valid for "+validSeconds+" seconds", 200);
+    });
 });
 
 app.get('/api/vms/:uuid', function(req, res, next) {
