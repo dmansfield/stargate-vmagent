@@ -119,6 +119,7 @@ function powerCycle(callback) {
 			xtra += "VM not running. Shutdown skipped.";
 		}
 		vmService.waitForPowerState(argv.m, vmService.POWER_STATE_OFF, 10000, function(err) {
+			if (err) return callback(err);
 			vmService.startVm(argv.m, function(err) {
 				callback(err, xtra);
 			});
