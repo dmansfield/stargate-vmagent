@@ -15,8 +15,14 @@ var ASSIGNED_USER_ELEM = "assignedUser";
 var ASSIGNED_USER_TYPE_ATTRIBUTE = "type";
 var INITIAL_METADATA_XML = "<metadata></metadata>";
 
-// error code not defined in libvirt library
-var VIR_ERR_NO_DOMAIN_METADATA = 80;
+
+// exported constants
+exports.POWER_STATE_OFF = 0;
+exports.POWER_STATE_ON = 1;
+
+// internal constants
+var ACTIVE_STATE_POLL_INTERVAL_MS = 100;
+var VIR_ERR_NO_DOMAIN_METADATA = 80; // not defined in libvirt library
 
 // validation tools
 var ValidUserTypes = {
@@ -81,6 +87,10 @@ exports.startVm = function(uuidOrName, callback) {
     withDomain(uuidOrName, function(err, domain) {
         if (err) return callback(err);
         domain.start(function(err) {
+            var re = /domain is already running/;
+            if (err && err.code === libvirt.VIR_ERR_OPERATION_INVALID && err.message.match(re)) {
+                err = new WrongPowerStateError(err, "Cannot start already running VM");
+            }
             return callback(err); 
         });
     });
@@ -185,6 +195,30 @@ exports.getVms = function(callback) {
     	    });
 	    }
 	});
+};
+
+function waitForPowerState(domain, desiredState, untilTimeMs, startTimeMs, callback) {
+    domain.isActive(function(err, active) {
+       if (err) return callback(err); 
+       var now = new Date().getTime();
+       //console.log("state is %s at %d", active, now);
+       if (active === desiredState) return callback();
+       if (now > untilTimeMs) {
+           var err = new VError("desiredState %s not reached after %s ms", desiredState, startTimeMs - now);
+           return callback(err);
+       }
+       setTimeout(function() {
+           waitForPowerState(domain, desiredState, untilTimeMs, startTimeMs, callback);
+       }, ACTIVE_STATE_POLL_INTERVAL_MS);
+    });
+}
+
+exports.waitForPowerState = function(uuidOrName, powerState, timeoutMs, callback) { 
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
+        var now = new Date().getTime();
+        waitForPowerState(domain, powerState == exports.POWER_STATE_ON, now + timeoutMs, now, callback);
+    });
 };
 
 // operating on "metadata" of domain

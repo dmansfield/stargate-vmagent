@@ -9,15 +9,12 @@ var subcommands = {
 	"add-user": addUser
 	, "remove-user": removeUser
 	, "power-cycle": powerCycle
+	, "power-off": powerOff
+	, "power-on": powerOn
 };
 
-var argv = require('yargs')
-	.usage('Usage: $0 <command> [options]')
-	.command('add-user', 'Add a user/administrator to a VM')
-	.command('remove-user', 'Add a user/administrator to a VM')
-	.command('power-cycle', 'Power cycle a VM')
-	.demand(1)
-	.example('$0 add-user -u bob -m win7','Add bob to win7 as a user')
+function requireUserAndMachineArgs(yargs) {
+	yargs
 	.demand('u')
 	.alias('u','user')
 	.nargs('u', 1)
@@ -33,6 +30,28 @@ var argv = require('yargs')
 	.describe('m','VM to add the user to (name or uuid)')
 	.help('h')
 	.alias('h','help')
+	.argv;
+};
+
+function requireMachineArgs(yargs) {
+	yargs
+	.demand('m')
+	.alias('m','vm')
+	.nargs('m', 1)
+	.describe('m','VM to act on (name or uuid)')
+	.help('h')
+	.alias('h','help')
+	.argv;
+}
+
+var argv = require('yargs')
+	.usage('Usage: $0 <command> [options]')
+	.command('add-user', 'Add a user/administrator to a VM', requireUserAndMachineArgs)
+	.command('remove-user', 'Add a user/administrator to a VM', requireMachineArgs)
+	.command('power-cycle', 'Hard power cycle a VM', requireMachineArgs)
+	.command('power-off', 'Hard power off a VM', requireMachineArgs)
+	.command('power-on', 'Power on a VM', requireMachineArgs)
+	.demand(1)
 	.check(checkSubcommand)
 	.argv;
 
@@ -77,10 +96,39 @@ function powerCycle(callback) {
 			}
 			xtra += "VM not running. Shutdown skipped.";
 		}
-		setTimeout(function() {
+		vmService.waitForPowerState(argv.m, vmService.POWER_STATE_OFF, 10000, function(err) {
 			vmService.startVm(argv.m, function(err) {
 				callback(err, xtra);
 			});
-		}, 2000);
+		});
+	});
+}
+
+function powerOff(callback) {
+	vmService.forceShutdownVm(argv.m, function(err) {
+		if (err) {
+			if (err instanceof WrongPowerStateError) {
+			    return callback(null, "VM not running. Shutdown skipped.");
+			}
+			return callback(err);
+		}
+		vmService.waitForPowerState(argv.m, vmService.POWER_STATE_OFF, 10000, function(err) {
+			return callback(err);
+		});
+		
+	});
+}
+
+function powerOn(callback) {
+	vmService.startVm(argv.m, function(err) {
+		if (err) {
+			if (err instanceof WrongPowerStateError) {
+				return callback(null, "VM already running. Startup skipped.");
+			}
+			return callback(err);
+		}
+		vmService.waitForPowerState(argv.m, vmService.POWER_STATE_ON, 10000, function(err) {
+			return callback(err);
+		});
 	});
 }
