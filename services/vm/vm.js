@@ -5,6 +5,7 @@ var VmNotFoundError = require('./errors/vmnotfounderror');
 var UserExistsError = require('./errors/userexistserror');
 var InvalidArgumentError = require('./errors/invalidargumenterror');
 var WrongPowerStateError = require('./errors/wrongpowerstateerror');
+var VError = require("verror");
 var xpath = require('xpath');
 var dom = require('xmldom').DOMParser;
 
@@ -14,7 +15,6 @@ var METADATA_NS_QUAL = "sgvm";
 var ASSIGNED_USER_ELEM = "assignedUser";
 var ASSIGNED_USER_TYPE_ATTRIBUTE = "type";
 var INITIAL_METADATA_XML = "<metadata></metadata>";
-
 
 // exported constants
 exports.POWER_STATE_OFF = 0;
@@ -218,6 +218,40 @@ exports.waitForPowerState = function(uuidOrName, powerState, timeoutMs, callback
         if (err) return callback(err);
         var now = new Date().getTime();
         waitForPowerState(domain, powerState == exports.POWER_STATE_ON, now + timeoutMs, now, callback);
+    });
+};
+
+//
+// This will fail (without much extra information) unless the domain was started
+// with an initial (possibly empty) password set. empty passwords prevent any
+// connection.  This only sets the password on the running instance; after
+// machine restart the password will revert to the persistently defined one.
+//
+exports.setGraphicsPassword = function(uuidOrName, password, validSeconds, callback) {
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
+        domain.toXml(function(err, xml) {
+            if (err) return callback(err);
+
+            var doc = new dom().parseFromString(xml);
+            var nodes = xpath.select("/domain/devices/graphics", doc);
+            if (nodes.length != 1) {
+                return callback(new VError("unable to find <graphics/> element in domain xml"));
+            }
+            var graphicsNode = nodes[0];
+
+            var validToMs = new Date().getTime();
+            validToMs += validSeconds * 1000;
+            // required format is without milliseconds and without the trailing 'Z'
+            var dt = new Date(validToMs).toISOString().replace(/\.\d{3}Z$/, '');
+
+            graphicsNode.setAttribute("passwd", password);
+            graphicsNode.setAttribute("passwdValidTo", dt);
+
+            domain.updateDevice(graphicsNode.toString(), [libvirt.VIR_DOMAIN_AFFECT_LIVE], function(err) {
+                return callback(err);
+            });
+        });
     });
 };
 

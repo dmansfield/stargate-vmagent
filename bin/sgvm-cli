@@ -4,6 +4,7 @@ var VError = require('verror');
 var vmService = require('../services/vm/vm');
 var UserExistsError = require('../services/vm/errors/userexistserror');
 var WrongPowerStateError = require('../services/vm/errors/wrongpowerstateerror');
+var fs = require('fs');
 
 var subcommands = {
 	"add-user": addUser
@@ -11,6 +12,7 @@ var subcommands = {
 	, "power-cycle": powerCycle
 	, "power-off": powerOff
 	, "power-on": powerOn
+	, "set-graphics-password": setGraphicsPassword
 };
 
 function requireUserAndMachineArgs(yargs) {
@@ -44,6 +46,25 @@ function requireMachineArgs(yargs) {
 	.argv;
 }
 
+function requireSetGraphicsPasswordArgs(yargs) {
+	yargs
+	.demand('m')
+	.alias('m','vm')
+	.nargs('m', 1)
+	.describe('m','VM to act on (name or uuid)')
+	.default('s', 60)
+	.alias('s', 'seconds')
+	.nargs('s', 1)
+	.describe('s','Password validity in seconds')
+	.demand('f')
+	.alias('f','password-file')
+	.nargs('f',1)
+	.describe('f', 'File containing new password')
+	.help('h')
+	.alias('h','help')
+	.argv;
+}
+
 var argv = require('yargs')
 	.usage('Usage: $0 <command> [options]')
 	.command('add-user', 'Add a user/administrator to a VM', requireUserAndMachineArgs)
@@ -51,6 +72,7 @@ var argv = require('yargs')
 	.command('power-cycle', 'Hard power cycle a VM', requireMachineArgs)
 	.command('power-off', 'Hard power off a VM', requireMachineArgs)
 	.command('power-on', 'Power on a VM', requireMachineArgs)
+	.command('set-graphics-password', 'Set the graphics password', requireSetGraphicsPasswordArgs)
 	.demand(1)
 	.check(checkSubcommand)
 	.argv;
@@ -129,6 +151,16 @@ function powerOn(callback) {
 		}
 		vmService.waitForPowerState(argv.m, vmService.POWER_STATE_ON, 10000, function(err) {
 			return callback(err);
+		});
+	});
+}
+
+function setGraphicsPassword(callback) {
+	fs.readFile(argv.f, {encoding:'ascii'}, function(err, passwd) {
+		if (err) return callback(err);
+		passwd = passwd.trim();
+		vmService.setGraphicsPassword(argv.m, passwd, argv.s, function(err, newPassword) {
+			return callback(err, newPassword);
 		});
 	});
 }
