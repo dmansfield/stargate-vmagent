@@ -3,16 +3,19 @@
 var VError = require('verror');
 var vmService = require('../services/vm/vm');
 var UserExistsError = require('../services/vm/errors/userexistserror');
+var WrongPowerStateError = require('../services/vm/errors/wrongpowerstateerror');
 
 var subcommands = {
 	"add-user": addUser
 	, "remove-user": removeUser
+	, "power-cycle": powerCycle
 };
 
 var argv = require('yargs')
 	.usage('Usage: $0 <command> [options]')
 	.command('add-user', 'Add a user/administrator to a VM')
 	.command('remove-user', 'Add a user/administrator to a VM')
+	.command('power-cycle', 'Power cycle a VM')
 	.demand(1)
 	.example('$0 add-user -u bob -m win7','Add bob to win7 as a user')
 	.demand('u')
@@ -65,3 +68,19 @@ function removeUser(callback) {
 	});
 }
 
+function powerCycle(callback) {
+	vmService.forceShutdownVm(argv.m, function(err) {
+		var xtra = "";
+		if (err) {
+			if (!(err instanceof WrongPowerStateError)) {
+			    return callback(err);
+			}
+			xtra += "VM not running. Shutdown skipped.";
+		}
+		setTimeout(function() {
+			vmService.startVm(argv.m, function(err) {
+				callback(err, xtra);
+			});
+		}, 2000);
+	});
+}

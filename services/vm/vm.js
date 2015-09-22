@@ -4,6 +4,7 @@ var debug = require('debug')('stargate-vmagent:vmservice');
 var VmNotFoundError = require('./errors/vmnotfounderror');
 var UserExistsError = require('./errors/userexistserror');
 var InvalidArgumentError = require('./errors/invalidargumenterror');
+var WrongPowerStateError = require('./errors/wrongpowerstateerror');
 var xpath = require('xpath');
 var dom = require('xmldom').DOMParser;
 
@@ -38,42 +39,51 @@ exports.init = function(callback) {
     });
 };
 
-// throws VmNotFoundError
-exports.getVm = function(uuid, callback) {
-    var dom = hypervisor.lookupDomainByUUID(uuid);
+function withDomain(uuidOrName, callback) {
+    var method;
+    
+    var re = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    method = (uuidOrName.match(re)) ? "lookupDomainByUUID" : "lookupDomainByName";
+    
+    hypervisor[method](uuidOrName, function(err, domain) {
+        if (err) {
+            if (err.code === libvirt.VIR_ERR_NO_DOMAIN) {
+                err = new VmNotFoundError(err, "no domain for key %s using method %s", uuidOrName, method);
+            }
+            return callback(err);
+        }
+        callback(null, domain);
+    });
+}
 
-    if (!dom) {
-        return callback(new VmNotFoundError("No VM found for uuid: %s", uuid), null);
-    }
-    
-    var xml = getDomainXml(dom);
-    
-    callback(null, {
-            name: dom.getName()
-            , uuid: dom.getUUID()
-            , info: dom.getInfo()
-            , xml: xml
+// throws VmNotFoundError
+exports.getVm = function(uuidOrName, callback) {
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
+        callback(new VError("not implemented"));
     });
 };
 
-exports.forceShutdownVm = function(uuid, callback) {
-	var dom = hypervisor.lookupDomainByUUID(uuid);
-
-	if (!dom) {
-		return callback(new VmNotFoundError("No VM found for uuid: %s", uuid), null);
-	}
-	
-	dom.destroy();
+exports.forceShutdownVm = function(uuidOrName, callback) {
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
+        domain.destroy(function(err) {
+            var re = /domain is not running/;
+            if (err && err.code === libvirt.VIR_ERR_OPERATION_INVALID && err.message.match(re)) {
+                err = new WrongPowerStateError(err,"Cannot shutdown powered off VM");
+            }
+            return callback(err); 
+        });
+    });
 }
 
-exports.startVm = function(uuid, callback) {
-	var dom = hypervisor.lookupDomainByUUID(uuid);
-
-	if (!dom) {
-		return callback(new VmNotFoundError("No VM found for uuid: %s", uuid), null);
-	}
-	
-	dom.start();
+exports.startVm = function(uuidOrName, callback) {
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
+        domain.start(function(err) {
+            return callback(err); 
+        });
+    });
 }
 
 // callback(err, res) will receive an array of vm object, each with properties:
@@ -180,18 +190,8 @@ exports.getVms = function(callback) {
 // operating on "metadata" of domain
 
 function withDomainAndMetadataDocument(uuidOrName, callback) {
-    var method;
-    
-    var re = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    method = (uuidOrName.match(re)) ? "lookupDomainByUUID" : "lookupDomainByName";
-    
-    hypervisor[method](uuidOrName, function(err, domain) {
-        if (err) {
-            if (err.code === libvirt.VIR_ERR_NO_DOMAIN) {
-                err = new VmNotFoundError(err, "no domain for key %s using method %s", uuidOrName, method);
-            }
-            return callback(err);
-        }
+    withDomain(uuidOrName, function(err, domain) {
+        if (err) return callback(err);
         domain.getMetadata(libvirt.VIR_DOMAIN_METADATA_ELEMENT, METADATA_NS, 0, function(err, xml) {
             if (err) {
                 if (err.code !== VIR_ERR_NO_DOMAIN_METADATA)  return callback(err);
