@@ -1,8 +1,13 @@
+var config = require('./config/config');
+
 var express = require('express');
 var path = require('path');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
+
+var vmService = require('./services/vm/vm');
+
 
 // =============
 // Error types
@@ -16,9 +21,7 @@ var NotFoundError = require('./errors/http/notfounderror');
 var VmNotFoundError = require('./services/vm/errors/vmnotfounderror');
 var UserExistsError = require('./services/vm/errors/userexistserror');
 
-var config = require('./config/config');
-
-var vmService = require('./services/vm/vm');
+// //////////////////////////////
 
 var app = express();
 
@@ -105,4 +108,7 @@ app.use(function(err, req, res, next) {
   });
 });
 
-module.exports = app;
+module.exports.app = app;
+module.exports.init = function(callback) {
+    vmService.init(callback);
+};

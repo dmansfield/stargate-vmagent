@@ -27,14 +27,16 @@ debug('Connecing to libvirt hypervisor: %s', config.libvirt.hypervisor.uri);
 
 var hypervisor = new libvirt.Hypervisor(config.libvirt.hypervisor.uri);
 
-// TODO: server startup has to wait for this.
-hypervisor.connect(function(err) {
-    if (err) throw err;
-    hypervisor.getVersion(function(err, version) {
-        if (err) throw err;
-        debug("hypervisor version %s", version);
+exports.init = function(callback) {
+    hypervisor.connect(function(err) {
+        if (err) return callback(err);
+        hypervisor.getVersion(function(err, version) {
+            if (err) return callback(err);
+            debug("hypervisor version %s", version);
+            callback();
+        });
     });
-});
+};
 
 // throws VmNotFoundError
 exports.getVm = function(uuid, callback) {
