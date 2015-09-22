@@ -21,3 +21,10 @@ polkit.addRule(function(action, subject) {
   }
 });
 ```
+
+## Generate a self-signed key/cert
+```
+openssl req -x509 -sha256 -nodes -days 1826 -newkey rsa:2048 -keyout NEW_SERVER_KEY.key -out NEW_SERVER_CERT.crt
+```
+
+Then edit config/config.js and indicate the location of the key and cert just created.

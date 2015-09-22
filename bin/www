@@ -4,10 +4,12 @@
  * Module dependencies.
  */
 
+var config = require('../config/config');
 var appModule = require('../app');
 var app = appModule.app;
 var debug = require('debug')('stargate-vmagent:server');
-var http = require('http');
+var https = require('https');
+var fs = require('fs');
 
 /**
  * Get port from environment and store in Express.
@@ -20,7 +22,10 @@ app.set('port', port);
  * Create HTTP server.
  */
 
-var server = http.createServer(app);
+var httpsKey = fs.readFileSync(config.https.key, 'utf8');
+var httpsCert = fs.readFileSync(config.https.cert, 'utf8');
+var httpsOptions = {key: httpsKey, cert: httpsCert};
+var server = https.createServer(httpsOptions, app);
 
 /**
  * allow for app async setup
