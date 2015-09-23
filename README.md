@@ -10,7 +10,12 @@ The initial list of functions to be supported are:
 * Power cycle VM
 * Set a temporary graphics (spice/vnc) password
 
-## Permissioning agent to access libvirt API
+
+## Configure agent
+
+Edit `config/config.js`
+
+## Permission agent to access libvirt API
 
 For example this in /etc/polkit-1/rules.d/80-libvirt.rules:
 
@@ -28,3 +33,11 @@ openssl req -x509 -sha256 -nodes -days 1826 -newkey rsa:2048 -keyout NEW_SERVER_
 ```
 
 Then edit config/config.js and indicate the location of the key and cert just created.
+
+## Extract Keytab and Set Environment Variable
+
+Each time before running the agent:
+
+```
+export KRB5_KTNAME=/path/to/keytab
+```
