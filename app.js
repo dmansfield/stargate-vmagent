@@ -5,8 +5,9 @@ var path = require('path');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
-
+var passport = require('passport');
 var vmService = require('./services/vm/vm');
+var passportSetup = require('./passport/passport.js');
 
 
 // =============
@@ -28,6 +29,10 @@ var app = express();
 
 app.use(logger('dev'));
 app.use(bodyParser.json());
+app.use(passport.initialize());
+app.use(passport.authenticate('login'));
+
+passportSetup(passport);
 
 // routing
 
