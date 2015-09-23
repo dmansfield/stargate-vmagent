@@ -18,6 +18,7 @@ var passportSetup = require('./passport/passport.js');
 var NotImplementedError = require('./errors/http/notimplementederror');
 var InternalServerError = require('./errors/http/internalservererror');
 var NotFoundError = require('./errors/http/notfounderror');
+var NotAuthorizedError = require('./errors/http/notauthorizederror');
 //    VM service errors.  These MUST be caught and wrapped with an http errro
 var VmNotFoundError = require('./services/vm/errors/vmnotfounderror');
 var UserExistsError = require('./services/vm/errors/userexistserror');
@@ -34,7 +35,7 @@ app.use(passport.authenticate('login'));
 
 passportSetup(passport);
 
-// routing
+// helpers
 
 function mapVmServiceError(err) {
     if (err instanceof UserExistsError) {return new NotFoundError(err);}
@@ -63,7 +64,35 @@ function sendMessageResponse(res, messageOrObject, code, location, errorName) {
     res.json(obj);
 }
 
-app.get('/api/vms/:uuid/assignees', function(req, res, next) {
+function requireAssignedUser(req, res, next) {
+    vmService.getVmAssignees(req.params.uuid, function(err, assignees) {
+        if (err) return next(mapVmServiceError(err));
+        var user = req.user.user;
+        var ok = false;
+        assignees.forEach(function(assignee) {
+            if (assignee.user === user) ok = true;
+        });
+        if (ok) return next();
+        next(new NotAuthorizedError("assigned user access required"));
+    });
+}
+
+function requireAdministrator(req, res, next) {
+    vmService.getVmAssignees(req.params.uuid, function(err, assignees) {
+        if (err) return next(mapVmServiceError(err));
+        var user = req.user.user;
+        var ok = false;
+        assignees.forEach(function(assignee) {
+            if (assignee.user === user && assignee.type === 'administrator') ok = true;
+        });
+        if (ok) return next();
+        next(new NotAuthorizedError("administrator access required"));
+    });
+}
+
+// routing
+
+app.get('/api/vms/:uuid/assignees', requireAssignedUser, function(req, res, next) {
     var uuid = req.params.uuid;
     vmService.getVmAssignees(uuid, function(err, assignees) {
         if (err) return next(mapVmServiceError(err));
@@ -71,7 +100,7 @@ app.get('/api/vms/:uuid/assignees', function(req, res, next) {
     });
 });
 
-app.put('/api/vms/:uuid/assignees/:user', function(req, res, next) {
+app.put('/api/vms/:uuid/assignees/:user', requireAdministrator, function(req, res, next) {
     var uuid = req.params.uuid;
     var user = req.params.user;
     var type = req.body.type;
@@ -81,7 +110,7 @@ app.put('/api/vms/:uuid/assignees/:user', function(req, res, next) {
     });
 });
 
-app.delete('/api/vms/:uuid/assignees/:user', function(req, res, next) {
+app.delete('/api/vms/:uuid/assignees/:user', requireAdministrator, function(req, res, next) {
     var uuid = req.params.uuid;
     var user = req.params.user;
     vmService.removeVmAssignee(uuid, user, function(err) {
@@ -90,7 +119,7 @@ app.delete('/api/vms/:uuid/assignees/:user', function(req, res, next) {
     });
 });
 
-app.get('/api/vms/:uuid/powerState', function(req, res, next) {
+app.get('/api/vms/:uuid/powerState', requireAssignedUser, function(req, res, next) {
     var uuid = req.params.uuid;
     vmService.getPowerState(uuid, function(err, powerState) {
         if (err) return next(mapVmServiceError(err));
@@ -101,7 +130,7 @@ app.get('/api/vms/:uuid/powerState', function(req, res, next) {
     });
 });
 
-app.put('/api/vms/:uuid/powerState', function(req, res, next) {
+app.put('/api/vms/:uuid/powerState', requireAssignedUser, function(req, res, next) {
     var uuid = req.params.uuid;
     var powerState = req.body.powerState;
     if (powerState === "cycle") {
@@ -134,7 +163,7 @@ app.put('/api/vms/:uuid/powerState', function(req, res, next) {
     }
 });
 
-app.put('/api/vms/:uuid/graphicsPassword', function(req, res, next) {
+app.put('/api/vms/:uuid/graphicsPassword', requireAssignedUser, function(req, res, next) {
     var uuid = req.params.uuid;
     var password = req.body.password;
     var validSeconds = req.body.validSeconds || 60;
@@ -144,7 +173,7 @@ app.put('/api/vms/:uuid/graphicsPassword', function(req, res, next) {
     });
 });
 
-app.get('/api/vms/:uuid', function(req, res, next) {
+app.get('/api/vms/:uuid', requireAssignedUser, function(req, res, next) {
     var uuid = req.params.uuid;
     vmService.getVm(uuid, function(err, vm) {
         if (err) return next(mapVmServiceError(err));
@@ -152,6 +181,7 @@ app.get('/api/vms/:uuid', function(req, res, next) {
     });
 });
 
+// TODO: what authorization applies to listing all vm?
 app.get('/api/vms', function(req, res, next) {
 	var allVms = vmService.getVms(function(err, vms) {
         if (err) return next(mapVmServiceError(err));
@@ -177,7 +207,7 @@ app.use(function(req, res, next) {
 // production error handler
 app.use(function(err, req, res, next) {
   res.status(err.status || 500);
-  console.log('Error handler: ', err);
+  console.log('Error handler: ', err, err.stack);
   res.send({ 
 	errorName: err.name,
     message: err.message,
